@@ -103,7 +103,7 @@ export const transactionService = {
       try {
         let query = supabase
           .from('transactions')
-          .select('*, category:categories(*), creator:profiles(*), wallet:wallets(name)')
+          .select('*, category:categories(*), creator:profiles!transactions_created_by_fkey(*), wallet:wallets(name)')
           .eq('is_deleted', false);
 
         if (options.walletId) query = query.eq('wallet_id', options.walletId);
@@ -217,7 +217,7 @@ export const transactionService = {
         const { data, error } = await supabase
           .from('transactions')
           .insert([newTx])
-          .select('*, category:categories(*), creator:profiles(*)')
+          .select('*, category:categories(*), creator:profiles!transactions_created_by_fkey(*)')
           .single();
 
         if (!error && data) return data;
@@ -257,7 +257,7 @@ export const transactionService = {
             updated_at: new Date().toISOString(),
           })
           .eq('id', id)
-          .select('*, category:categories(*), creator:profiles(*)')
+          .select('*, category:categories(*), creator:profiles!transactions_created_by_fkey(*)')
           .single();
 
         if (!error && data) return data;

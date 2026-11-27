@@ -47,7 +47,7 @@ export const reportService = {
       try {
         let query = supabase
           .from('transactions')
-          .select('*, category:categories(*), creator:profiles(*)')
+          .select('*, category:categories(*), creator:profiles!transactions_created_by_fkey(*)')
           .eq('is_deleted', false)
           .gte('transaction_date', startDate.toISOString())
           .lte('transaction_date', endDate.toISOString());
