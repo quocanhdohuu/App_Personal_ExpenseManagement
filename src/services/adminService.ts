@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import { Profile } from '../types/database.types';
 import { AuditLogWithUser, SystemConfig, UserManagementStats } from '../types/admin.types';
 import { CreateUserInput, UpdateUserInput } from '../types/auth.types';
@@ -183,8 +184,73 @@ export const adminService = {
    * Tạo người dùng mới
    */
   async createUser(input: CreateUserInput): Promise<Profile> {
-    const users = loadLocalUsers();
     const emailNorm = input.email.trim().toLowerCase();
+
+    if (isSupabaseConfigured) {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+      const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+
+      const { data: signUpData, error: signUpErr } = await tempClient.auth.signUp({
+        email: emailNorm,
+        password: input.password,
+        options: {
+          data: { full_name: input.full_name.trim() },
+        },
+      });
+
+      if (signUpErr || !signUpData.user) {
+        throw new Error(signUpErr?.message || 'Không thể tạo tài khoản trên Supabase Auth');
+      }
+
+      const createdId = signUpData.user.id;
+      const now = new Date().toISOString();
+
+      const { data: profileData, error: profErr } = await supabase
+        .from('profiles')
+        .upsert({
+          id: createdId,
+          email: emailNorm,
+          full_name: input.full_name.trim(),
+          is_system_admin: Boolean(input.is_system_admin),
+          is_active: input.is_active !== undefined ? Boolean(input.is_active) : true,
+          updated_at: now,
+        })
+        .select('*')
+        .single();
+
+      if (profErr || !profileData) {
+        throw new Error(profErr?.message || 'Lỗi khi lưu hồ sơ người dùng vào bảng profiles');
+      }
+
+      // Tự động tạo ví cá nhân mặc định trên Supabase cho người dùng mới
+      const { data: walletData } = await supabase
+        .from('wallets')
+        .insert({
+          name: `Ví cá nhân - ${input.full_name.trim()}`,
+          description: 'Quỹ chi tiêu cá nhân mặc định',
+          type: 'PERSONAL',
+          currency: 'VND',
+          initial_balance: 0,
+          created_by: createdId,
+        })
+        .select('id')
+        .single();
+
+      if (walletData?.id) {
+        await supabase.from('wallet_members').insert({
+          wallet_id: walletData.id,
+          user_id: createdId,
+          role: 'OWNER',
+        });
+      }
+
+      return profileData as Profile;
+    }
+
+    const users = loadLocalUsers();
 
     if (users.some((u) => u.email.toLowerCase() === emailNorm)) {
       throw new Error(`Email "${input.email}" đã tồn tại trong hệ thống!`);
@@ -264,6 +330,29 @@ export const adminService = {
    * Cập nhật thông tin người dùng
    */
   async updateUser(userId: string, input: UpdateUserInput): Promise<Profile> {
+    const emailNorm = input.email.trim().toLowerCase();
+
+    if (isSupabaseConfigured) {
+      const { data: updated, error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: input.full_name.trim(),
+          email: emailNorm,
+          is_system_admin: Boolean(input.is_system_admin),
+          is_active: Boolean(input.is_active),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select('*')
+        .single();
+
+      if (error || !updated) {
+        throw new Error(error?.message || 'Lỗi khi cập nhật người dùng trên Supabase');
+      }
+      authService.updateSessionUser(updated as Profile);
+      return updated as Profile;
+    }
+
     const users = loadLocalUsers();
     const targetIndex = users.findIndex((u) => u.id === userId);
     if (targetIndex === -1) {
@@ -271,7 +360,6 @@ export const adminService = {
     }
 
     const target = users[targetIndex];
-    const emailNorm = input.email.trim().toLowerCase();
 
     // Kiểm tra trùng email nếu email thay đổi
     if (target.email.toLowerCase() !== emailNorm && users.some((u) => u.id !== userId && u.email.toLowerCase() === emailNorm)) {
@@ -323,15 +411,21 @@ export const adminService = {
    * Xóa người dùng khỏi hệ thống
    */
   async deleteUser(userId: string): Promise<void> {
+    const currentUser = authService.getCurrentUser();
+    if (currentUser && currentUser.id === userId) {
+      throw new Error('Bạn không thể tự xóa tài khoản của chính mình!');
+    }
+
+    if (isSupabaseConfigured) {
+      const { error } = await supabase.from('profiles').delete().eq('id', userId);
+      if (error) throw new Error(error.message || 'Lỗi khi xóa người dùng trên Supabase');
+      return;
+    }
+
     const users = loadLocalUsers();
     const target = users.find((u) => u.id === userId);
     if (!target) {
       throw new Error('Không tìm thấy người dùng cần xóa');
-    }
-
-    const currentUser = authService.getCurrentUser();
-    if (currentUser && currentUser.id === userId) {
-      throw new Error('Bạn không thể tự xóa tài khoản của chính mình!');
     }
 
     const updatedUsers = users.filter((u) => u.id !== userId);
@@ -353,7 +447,7 @@ export const adminService = {
    * Thống kê người dùng
    */
   async getUserStats(): Promise<UserManagementStats> {
-    const users = loadLocalUsers();
+    const users = await this.getUsers();
     return {
       totalUsers: users.length,
       activeUsers: users.filter((u) => u.is_active).length,
@@ -366,14 +460,31 @@ export const adminService = {
    * Khóa / Mở khóa tài khoản người dùng
    */
   async toggleUserLock(userId: string): Promise<boolean> {
-    const users = loadLocalUsers();
-    const target = users.find((u) => u.id === userId);
-    if (!target) throw new Error('Không tìm thấy người dùng');
-
     const currentUser = authService.getCurrentUser();
     if (currentUser && currentUser.id === userId) {
       throw new Error('Bạn không thể tự khóa tài khoản của chính mình!');
     }
+
+    if (isSupabaseConfigured) {
+      const { data: current, error: fetchErr } = await supabase
+        .from('profiles')
+        .select('is_active')
+        .eq('id', userId)
+        .single();
+      if (fetchErr || !current) throw new Error('Không tìm thấy người dùng');
+
+      const nextActive = !current.is_active;
+      const { error: updErr } = await supabase
+        .from('profiles')
+        .update({ is_active: nextActive, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+      if (updErr) throw new Error(updErr.message);
+      return nextActive;
+    }
+
+    const users = loadLocalUsers();
+    const target = users.find((u) => u.id === userId);
+    if (!target) throw new Error('Không tìm thấy người dùng');
 
     target.is_active = !target.is_active;
     target.updated_at = new Date().toISOString();
@@ -394,11 +505,33 @@ export const adminService = {
    * Chuyển đổi vai trò Quản trị viên (Admin)
    */
   async toggleAdminRole(userId: string): Promise<boolean> {
+    const currentUser = authService.getCurrentUser();
+
+    if (isSupabaseConfigured) {
+      const { data: current, error: fetchErr } = await supabase
+        .from('profiles')
+        .select('is_system_admin')
+        .eq('id', userId)
+        .single();
+      if (fetchErr || !current) throw new Error('Không tìm thấy người dùng');
+
+      if (currentUser && currentUser.id === userId && current.is_system_admin) {
+        throw new Error('Bạn không thể tự thu hồi quyền Admin của chính mình!');
+      }
+
+      const nextAdmin = !current.is_system_admin;
+      const { error: updErr } = await supabase
+        .from('profiles')
+        .update({ is_system_admin: nextAdmin, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+      if (updErr) throw new Error(updErr.message);
+      return nextAdmin;
+    }
+
     const users = loadLocalUsers();
     const target = users.find((u) => u.id === userId);
     if (!target) throw new Error('Không tìm thấy người dùng');
 
-    const currentUser = authService.getCurrentUser();
     if (currentUser && currentUser.id === userId && target.is_system_admin) {
       throw new Error('Bạn không thể tự thu hồi quyền Admin của chính mình!');
     }

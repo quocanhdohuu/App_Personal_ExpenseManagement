@@ -50,7 +50,9 @@ BEGIN
     -- Mật khẩu mặc định: 'Password123!' được mã hóa bằng crypt
     INSERT INTO auth.users (
         id, instance_id, aud, role, email, encrypted_password,
-        email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+        email_confirmed_at, confirmation_token, recovery_token,
+        email_change_token_new, email_change,
+        raw_app_meta_data, raw_user_meta_data, created_at, updated_at
     )
     VALUES 
     (
@@ -60,12 +62,29 @@ BEGIN
         'authenticated',
         'admin@expense.local',
         crypt('Password123!', gen_salt('bf')),
-        now(),
+        now(), '', '', '', '',
         '{"provider":"email","providers":["email"]}'::jsonb,
         '{"full_name":"Quản trị hệ thống"}'::jsonb,
         now(), now()
     )
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT (id) DO UPDATE SET
+        confirmation_token = COALESCE(auth.users.confirmation_token, ''),
+        recovery_token = COALESCE(auth.users.recovery_token, ''),
+        email_change_token_new = COALESCE(auth.users.email_change_token_new, ''),
+        email_change = COALESCE(auth.users.email_change, '');
+
+    INSERT INTO auth.identities (
+        id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+    )
+    VALUES (
+        v_admin_id,
+        v_admin_id,
+        'admin@expense.local',
+        jsonb_build_object('sub', v_admin_id::text, 'email', 'admin@expense.local'),
+        'email',
+        now(), now(), now()
+    )
+    ON CONFLICT DO NOTHING;
 
     -- 2.2 Tạo / Cập nhật profiles
     INSERT INTO public.profiles (id, email, full_name, is_system_admin, is_active)
