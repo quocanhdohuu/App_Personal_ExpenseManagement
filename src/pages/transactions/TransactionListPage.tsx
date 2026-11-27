@@ -28,9 +28,12 @@ import { formatCurrency, formatDate } from '../../utils/formatters';
 import { Badge } from '../../components/common/Badge';
 import { TransactionFormModal } from '../../components/transaction/TransactionFormModal';
 import { TransferFundsModal } from '../../components/transaction/TransferFundsModal';
+import { useAuth } from '../../context/AuthContext';
 
 export const TransactionListPage: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [transactions, setTransactions] = useState<TransactionWithDetails[]>([]);
+  const [allTransactionsForBalance, setAllTransactionsForBalance] = useState<TransactionWithDetails[]>([]);
   const [wallets, setWallets] = useState<WalletWithDetails[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -52,20 +55,56 @@ export const TransactionListPage: React.FC = () => {
   const loadData = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const [wList, cList, txList] = await Promise.all([
+      const hasExtraFilter = Boolean(
+        filters.searchQuery || filters.categoryId || (filters.type && filters.type !== 'ALL')
+      );
+      const [wList, cList, txList, fullTxList] = await Promise.all([
         walletService.getWallets(),
         categoryService.getCategories(),
         transactionService.getTransactions(filters),
+        hasExtraFilter
+          ? transactionService.getTransactions({ walletId: filters.walletId, sortBy: 'date_desc' })
+          : Promise.resolve(null),
       ]);
       setWallets(wList);
       setCategories(cList);
       setTransactions(txList);
+      setAllTransactionsForBalance(fullTxList ?? txList);
     } catch (err) {
       console.error('Error loading transactions data:', err);
     } finally {
       if (!silent) setLoading(false);
     }
   };
+
+  // Tính số dư của quỹ ngay tại thời điểm sau mỗi giao dịch
+  const balanceAfterMap = React.useMemo(() => {
+    const map = new Map<string, number>();
+    const sourceList = allTransactionsForBalance.length > 0 ? allTransactionsForBalance : transactions;
+    const byWallet = new Map<string, TransactionWithDetails[]>();
+    for (const tx of sourceList) {
+      const arr = byWallet.get(tx.wallet_id) || [];
+      arr.push(tx);
+      byWallet.set(tx.wallet_id, arr);
+    }
+    for (const [wId, list] of byWallet.entries()) {
+      const wallet = wallets.find((w) => w.id === wId);
+      let running = wallet ? wallet.initial_balance : 0;
+      const sortedAsc = [...list].sort((a, b) => {
+        const diff = new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime();
+        return diff !== 0 ? diff : new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+      for (const tx of sortedAsc) {
+        if (tx.type === 'INCOME' || tx.type === 'ADJUSTMENT') {
+          running += tx.amount;
+        } else if (tx.type === 'EXPENSE') {
+          running -= tx.amount;
+        }
+        map.set(tx.id, running);
+      }
+    }
+    return map;
+  }, [allTransactionsForBalance, transactions, wallets]);
 
   useEffect(() => {
     loadData();
@@ -97,11 +136,6 @@ export const TransactionListPage: React.FC = () => {
     }
   };
 
-  // Calculation for summary stats
-  const totalIncome = transactions
-    .filter((t) => t.type === 'INCOME')
-    .reduce((acc, t) => acc + t.amount, 0);
-
   const selectedWallet = wallets.find((w) => w.id === filters.walletId);
   const currentWalletBalance = selectedWallet
     ? (selectedWallet.balanceSummary?.current_balance ?? selectedWallet.initial_balance)
@@ -113,21 +147,20 @@ export const TransactionListPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">
-            Quản Lý Giao Dịch
+            Quản Lý Thu Chi
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Ghi chép thu chi, phân loại danh mục, điều chỉnh và chuyển tiền giữa các quỹ
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => setIsTransferModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors"
-          >
-            <ArrowRightLeft className="w-4 h-4 text-indigo-600" />
-            <span>Chuyển tiền giữa các quỹ</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setIsTransferModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors"
+            >
+              <ArrowRightLeft className="w-4 h-4 text-indigo-600" />
+              <span>Chuyển tiền giữa các quỹ</span>
+            </button>
+          )}
 
           <button
             onClick={() => {
@@ -142,36 +175,21 @@ export const TransactionListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Aggregate Overview Strip (Bao gồm Số Dư Hiện Tại Của Quỹ) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Số Dư Hiện Tại Của Quỹ Đang Chọn hoặc Tổng Quỹ */}
-        <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 text-white shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-xs text-emerald-100 font-medium uppercase tracking-wider block">
-              {selectedWallet ? `Số Dư: ${selectedWallet.name}` : 'Tổng Số Dư Các Quỹ'}
-            </span>
-            <span className="text-xl font-extrabold block mt-1 tracking-tight">
-              {formatCurrency(currentWalletBalance)}
-            </span>
-            <span className="text-[10px] text-emerald-200 block mt-0.5">
-              {selectedWallet ? (selectedWallet.type === 'PERSONAL' ? 'Quỹ cá nhân' : 'Quỹ chung') : 'Đang hoạt động'}
-            </span>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-white/20 text-white flex items-center justify-center">
-            <WalletIcon className="w-5 h-5" />
-          </div>
+      {/* Aggregate Overview Strip (Số Dư Hiện Tại Của Quỹ) */}
+      <div className="p-4 sm:p-5 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 text-white shadow-sm flex items-center justify-between">
+        <div>
+          <span className="text-xs text-emerald-100 font-medium uppercase tracking-wider block">
+            {selectedWallet ? `Số Dư: ${selectedWallet.name}` : 'Tổng Số Dư Các Quỹ'}
+          </span>
+          <span className="text-2xl font-extrabold block mt-1 tracking-tight">
+            {formatCurrency(currentWalletBalance)}
+          </span>
+          <span className="text-[11px] text-emerald-200 block mt-0.5">
+            {selectedWallet ? (selectedWallet.type === 'PERSONAL' ? 'Quỹ cá nhân' : 'Quỹ chung') : 'Đang hoạt động'}
+          </span>
         </div>
-
-        <div className="p-4 rounded-xl bg-white border border-gray-200 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-xs text-gray-400 font-medium uppercase tracking-wider block">Tổng Thu (Bộ lọc)</span>
-            <span className="text-xl font-bold text-emerald-600 block mt-1">
-              +{formatCurrency(totalIncome)}
-            </span>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-            <ArrowUpRight className="w-5 h-5" />
-          </div>
+        <div className="w-11 h-11 rounded-xl bg-white/20 text-white flex items-center justify-center">
+          <WalletIcon className="w-6 h-6" />
         </div>
       </div>
 
@@ -217,8 +235,8 @@ export const TransactionListPage: React.FC = () => {
             />
           </div>
 
-          {/* Wallet Filter */}
-          <div>
+          {/* Wallet Filter (Ẩn trên điện thoại) */}
+          <div className="hidden sm:block">
             <select
               value={filters.walletId || ''}
               onChange={(e) => setFilters({ ...filters, walletId: e.target.value || undefined })}
@@ -233,8 +251,8 @@ export const TransactionListPage: React.FC = () => {
             </select>
           </div>
 
-          {/* Type Filter */}
-          <div>
+          {/* Type Filter (Ẩn trên điện thoại) */}
+          <div className="hidden sm:block">
             <select
               value={filters.type || 'ALL'}
               onChange={(e) => setFilters({ ...filters, type: e.target.value as any })}
@@ -247,8 +265,8 @@ export const TransactionListPage: React.FC = () => {
             </select>
           </div>
 
-          {/* Category Filter */}
-          <div>
+          {/* Category Filter (Ẩn trên điện thoại) */}
+          <div className="hidden sm:block">
             <select
               value={filters.categoryId || ''}
               onChange={(e) => setFilters({ ...filters, categoryId: e.target.value || undefined })}
@@ -263,8 +281,8 @@ export const TransactionListPage: React.FC = () => {
             </select>
           </div>
 
-          {/* Sort By */}
-          <div>
+          {/* Sort By (Ẩn trên điện thoại, mặc định mới nhất lên đầu) */}
+          <div className="hidden sm:block">
             <select
               value={filters.sortBy || 'date_desc'}
               onChange={(e) => setFilters({ ...filters, sortBy: e.target.value as any })}
@@ -311,18 +329,18 @@ export const TransactionListPage: React.FC = () => {
               const isIncome = tx.type === 'INCOME';
               const isExpense = tx.type === 'EXPENSE';
               const txWallet = wallets.find((w) => w.id === tx.wallet_id);
-              const txWalletBalance = txWallet
-                ? (txWallet.balanceSummary?.current_balance ?? txWallet.initial_balance)
-                : 0;
+              const txBalanceAfter = balanceAfterMap.get(tx.id) ?? (
+                txWallet ? (txWallet.balanceSummary?.current_balance ?? txWallet.initial_balance) : 0
+              );
 
               return (
                 <div
                   key={tx.id}
-                  className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50/70 transition-colors"
+                  className="p-4 sm:p-5 flex items-center justify-between gap-3 sm:gap-4 hover:bg-gray-50/70 transition-colors"
                 >
-                  {/* Left: Icon, Description, Category, Date, Wallet */}
-                  <div className="flex items-start gap-3.5">
-                    <div className={`p-2.5 rounded-xl flex-shrink-0 mt-0.5 ${
+                  {/* Left: Icon (Desktop), Description, Date, Extra Info (Desktop) */}
+                  <div className="flex items-start gap-3.5 min-w-0">
+                    <div className={`hidden sm:block p-2.5 rounded-xl flex-shrink-0 mt-0.5 ${
                       isIncome
                         ? 'bg-emerald-50 text-emerald-600'
                         : isExpense
@@ -338,33 +356,35 @@ export const TransactionListPage: React.FC = () => {
                       )}
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm sm:text-base font-semibold text-gray-900">
+                        <span className="text-sm sm:text-base font-semibold text-gray-900 truncate">
                           {tx.description}
                         </span>
-                        <Badge variant={isIncome ? 'success' : isExpense ? 'danger' : 'info'}>
-                          {tx.category?.name || 'Khác'}
-                        </Badge>
+                        <span className="hidden sm:inline-flex">
+                          <Badge variant={isIncome ? 'success' : isExpense ? 'danger' : 'info'}>
+                            {tx.category?.name || 'Khác'}
+                          </Badge>
+                        </span>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400 mt-1">
                         <span className="flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5" />
+                          <Calendar className="w-3.5 h-3.5 hidden sm:inline" />
                           {formatDate(tx.transaction_date)}
                         </span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1 text-gray-600 font-medium">
+                        <span className="hidden sm:inline">•</span>
+                        <span className="hidden sm:flex items-center gap-1 text-gray-600 font-medium">
                           <WalletIcon className="w-3.5 h-3.5 text-emerald-600" />
                           <span>{txWallet?.name || 'Quỹ'}</span>
                           <span className="text-[11px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                            Số dư: {formatCurrency(txWalletBalance)}
+                            Số dư sau GD: {formatCurrency(txBalanceAfter)}
                           </span>
                         </span>
                         {tx.creator && (
                           <>
-                            <span>•</span>
-                            <span className="flex items-center gap-1 text-gray-400">
+                            <span className="hidden sm:inline">•</span>
+                            <span className="hidden sm:flex items-center gap-1 text-gray-400">
                               <User className="w-3.5 h-3.5" />
                               {tx.creator.full_name}
                             </span>
@@ -373,27 +393,30 @@ export const TransactionListPage: React.FC = () => {
                       </div>
 
                       {tx.notes && (
-                        <p className="text-xs text-gray-500 mt-1 italic">
+                        <p className="hidden sm:block text-xs text-gray-500 mt-1 italic">
                           "{tx.notes}"
                         </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Right: Amount & Action Buttons */}
-                  <div className="flex items-center justify-between sm:justify-end gap-4 pl-12 sm:pl-0">
-                    <div className="text-left sm:text-right">
-                      <span className={`text-base sm:text-lg font-bold block ${
+                  {/* Right: Amount, Balance After (Mobile), Action Buttons (Desktop) */}
+                  <div className="flex items-center justify-end gap-4 flex-shrink-0">
+                    <div className="text-right">
+                      <span className={`text-sm sm:text-lg font-bold block ${
                         isIncome ? 'text-emerald-600' : isExpense ? 'text-red-600' : 'text-blue-600'
                       }`}>
                         {isIncome ? '+' : isExpense ? '-' : ''}{formatCurrency(tx.amount)}
                       </span>
-                      <span className="text-[10px] text-gray-400">
+                      <span className="sm:hidden text-[11px] font-medium text-emerald-600 block mt-0.5">
+                        Số dư: {formatCurrency(txBalanceAfter)}
+                      </span>
+                      <span className="hidden sm:inline text-[10px] text-gray-400">
                         Phiên bản: v{tx.version}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1">
+                    <div className="hidden sm:flex items-center gap-1">
                       <button
                         onClick={() => {
                           setEditingTransaction(tx);
