@@ -54,30 +54,6 @@ BEGIN
     )
     VALUES 
     (
-        v_user_a_id,
-        '00000000-0000-0000-0000-000000000000',
-        'authenticated',
-        'authenticated',
-        'usera@expense.local',
-        crypt('Password123!', gen_salt('bf')),
-        now(),
-        '{"provider":"email","providers":["email"]}'::jsonb,
-        '{"full_name":"Người dùng A"}'::jsonb,
-        now(), now()
-    ),
-    (
-        v_user_b_id,
-        '00000000-0000-0000-0000-000000000000',
-        'authenticated',
-        'authenticated',
-        'userb@expense.local',
-        crypt('Password123!', gen_salt('bf')),
-        now(),
-        '{"provider":"email","providers":["email"]}'::jsonb,
-        '{"full_name":"Người dùng B"}'::jsonb,
-        now(), now()
-    ),
-    (
         v_admin_id,
         '00000000-0000-0000-0000-000000000000',
         'authenticated',
@@ -94,55 +70,9 @@ BEGIN
     -- 2.2 Tạo / Cập nhật profiles
     INSERT INTO public.profiles (id, email, full_name, is_system_admin, is_active)
     VALUES 
-        (v_user_a_id, 'usera@expense.local', 'Người dùng A', FALSE, TRUE),
-        (v_user_b_id, 'userb@expense.local', 'Người dùng B', FALSE, TRUE),
-        (v_admin_id,  'admin@expense.local',  'Quản trị viên', TRUE,  TRUE)
+       (v_admin_id,  'admin@expense.local',  'Quản trị viên', TRUE,  TRUE)
     ON CONFLICT (id) DO UPDATE SET 
         is_system_admin = EXCLUDED.is_system_admin,
         full_name = EXCLUDED.full_name;
-
-    -- 2.3 Tạo Quỹ cá nhân của User A
-    INSERT INTO public.wallets (id, name, description, type, currency, initial_balance, created_by)
-    VALUES (v_wallet_a_id, 'Ví cá nhân User A', 'Quỹ chi tiêu riêng của User A', 'PERSONAL', 'VND', 5000000.00, v_user_a_id)
-    ON CONFLICT (id) DO NOTHING;
-
-    INSERT INTO public.wallet_members (wallet_id, user_id, role)
-    VALUES (v_wallet_a_id, v_user_a_id, 'OWNER')
-    ON CONFLICT (wallet_id, user_id) DO NOTHING;
-
-    -- 2.4 Tạo Quỹ cá nhân của User B
-    INSERT INTO public.wallets (id, name, description, type, currency, initial_balance, created_by)
-    VALUES (v_wallet_b_id, 'Ví cá nhân User B', 'Quỹ chi tiêu riêng của User B', 'PERSONAL', 'VND', 3000000.00, v_user_b_id)
-    ON CONFLICT (id) DO NOTHING;
-
-    INSERT INTO public.wallet_members (wallet_id, user_id, role)
-    VALUES (v_wallet_b_id, v_user_b_id, 'OWNER')
-    ON CONFLICT (wallet_id, user_id) DO NOTHING;
-
-    -- 2.5 Tạo Quỹ chung (Shared Wallet)
-    -- User A là OWNER, User B là EDITOR
-    INSERT INTO public.wallets (id, name, description, type, currency, initial_balance, created_by)
-    VALUES (v_shared_wallet_id, 'Quỹ sinh hoạt chung', 'Quỹ chung cho User A và User B', 'SHARED', 'VND', 10000000.00, v_user_a_id)
-    ON CONFLICT (id) DO NOTHING;
-
-    INSERT INTO public.wallet_members (wallet_id, user_id, role)
-    VALUES 
-        (v_shared_wallet_id, v_user_a_id, 'OWNER'),
-        (v_shared_wallet_id, v_user_b_id, 'EDITOR')
-    ON CONFLICT (wallet_id, user_id) DO NOTHING;
-
-    -- 2.6 Thêm một vài giao dịch mẫu cho Quỹ chung
-    SELECT id INTO v_cat_food_id FROM public.categories WHERE name = 'Ăn uống' AND wallet_id IS NULL LIMIT 1;
-    SELECT id INTO v_cat_salary_id FROM public.categories WHERE name = 'Tiền lương' AND wallet_id IS NULL LIMIT 1;
-
-    IF v_cat_food_id IS NOT NULL THEN
-        INSERT INTO public.transactions (
-            wallet_id, category_id, type, amount, transaction_date, description, created_by, idempotency_key
-        )
-        VALUES 
-            (v_shared_wallet_id, v_cat_food_id, 'EXPENSE', 150000.00, now() - INTERVAL '1 day', 'Đi siêu thị mua thức ăn', v_user_a_id, 'seed_tx_001'),
-            (v_shared_wallet_id, v_cat_food_id, 'EXPENSE', 85000.00, now(), 'Ăn trưa cơm văn phòng', v_user_b_id, 'seed_tx_002')
-        ON CONFLICT (idempotency_key) DO NOTHING;
-    END IF;
 
 END $$;
