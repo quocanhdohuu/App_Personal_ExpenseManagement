@@ -11,7 +11,8 @@ import {
   Calendar,
   CreditCard,
   User,
-  Wallet as WalletIcon
+  Wallet as WalletIcon,
+  RefreshCw
 } from 'lucide-react';
 import { transactionService } from '../../services/transactionService';
 import { walletService } from '../../services/walletService';
@@ -37,6 +38,7 @@ export const TransactionListPage: React.FC = () => {
   const [wallets, setWallets] = useState<WalletWithDetails[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   // Filters State
   const [filters, setFilters] = useState<TransactionFilterOptions>({
@@ -136,6 +138,15 @@ export const TransactionListPage: React.FC = () => {
     }
   };
 
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      await loadData(true);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const selectedWallet = wallets.find((w) => w.id === filters.walletId);
   const currentWalletBalance = selectedWallet
     ? (selectedWallet.balanceSummary?.current_balance ?? selectedWallet.initial_balance)
@@ -152,6 +163,17 @@ export const TransactionListPage: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 shadow-xs transition-colors disabled:opacity-60"
+            title="Làm mới dữ liệu giao dịch và số dư"
+          >
+            <RefreshCw className={`w-4 h-4 text-emerald-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'Đang tải...' : 'Làm mới'}</span>
+          </button>
+
           {isAdmin && (
             <button
               onClick={() => setIsTransferModalOpen(true)}
