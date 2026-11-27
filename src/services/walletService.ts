@@ -149,6 +149,7 @@ export const walletService = {
 
     if (isSupabaseConfigured) {
       try {
+        const currentUser = getCurrentAuthUser();
         const { data: memberRows, error: memberErr } = await supabase
           .from('wallet_members')
           .select('wallet_id, role')
@@ -156,21 +157,25 @@ export const walletService = {
 
         if (memberErr) throw memberErr;
 
-        const walletIds = (memberRows || []).map((r) => r.wallet_id);
-        if (walletIds.length === 0) return [];
-
-        const { data: wallets, error: walletErr } = await supabase
+        let walletsQuery = supabase
           .from('wallets')
           .select('*')
-          .in('id', walletIds)
           .order('created_at', { ascending: false });
 
+        if (!currentUser.is_system_admin) {
+          const walletIds = (memberRows || []).map((r) => r.wallet_id);
+          if (walletIds.length === 0) return [];
+          walletsQuery = walletsQuery.in('id', walletIds);
+        }
+
+        const { data: wallets, error: walletErr } = await walletsQuery;
         if (walletErr) throw walletErr;
 
         const results: WalletWithDetails[] = [];
         for (const w of wallets || []) {
           const balance = await this.getWalletBalance(w.id);
-          const role = memberRows?.find((m) => m.wallet_id === w.id)?.role as WalletMemberRole;
+          const role = (memberRows?.find((m) => m.wallet_id === w.id)?.role as WalletMemberRole)
+            || (currentUser.is_system_admin ? 'OWNER' : 'VIEWER');
           results.push({
             ...w,
             balanceSummary: balance,

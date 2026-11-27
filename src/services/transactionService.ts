@@ -214,13 +214,27 @@ export const transactionService = {
 
     if (isSupabaseConfigured) {
       try {
+        const dbPayload = {
+          id: newTx.id,
+          wallet_id: newTx.wallet_id,
+          category_id: newTx.category_id,
+          type: newTx.type,
+          amount: newTx.amount,
+          transaction_date: newTx.transaction_date,
+          description: newTx.description,
+          notes: newTx.notes,
+          created_by: newTx.created_by,
+          idempotency_key: newTx.idempotency_key,
+        };
+
         const { data, error } = await supabase
           .from('transactions')
-          .insert([newTx])
+          .insert([dbPayload])
           .select('*, category:categories(*), creator:profiles!transactions_created_by_fkey(*)')
           .single();
 
         if (!error && data) return data;
+        if (error) console.warn('Supabase createTransaction error:', error);
       } catch (err) {
         console.warn('Supabase createTransaction failed, saving locally:', err);
       }
