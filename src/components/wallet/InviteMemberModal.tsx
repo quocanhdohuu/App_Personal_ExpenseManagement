@@ -1,21 +1,28 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Modal } from '../common/Modal';
 import { InviteMemberInput, inviteMemberSchema } from '../../types/wallet.types';
-import { Edit3, Eye, Mail } from 'lucide-react';
+import { Profile } from '../../types/database.types';
+import { adminService } from '../../services/adminService';
+import { Edit3, Eye, Users, Loader2 } from 'lucide-react';
 
 interface InviteMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: InviteMemberInput) => Promise<void>;
+  existingMemberIds?: string[];
 }
 
 export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
+  existingMemberIds = [],
 }) => {
+  const [availableUsers, setAvailableUsers] = useState<Profile[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState<boolean>(false);
+
   const {
     register,
     handleSubmit,
@@ -33,13 +40,38 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
 
   const selectedRole = watch('role');
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const loadUsers = async () => {
+      try {
+        setLoadingUsers(true);
+        const allUsers = await adminService.getUsers();
+        const existingSet = new Set(existingMemberIds);
+        const eligible = allUsers.filter((u) => u.is_active && !existingSet.has(u.id));
+        setAvailableUsers(eligible);
+        if (eligible.length > 0) {
+          setValue('email', eligible[0].email, { shouldValidate: true });
+        } else {
+          setValue('email', '');
+        }
+      } catch (err) {
+        console.warn('Error loading users for wallet:', err);
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+
+    loadUsers();
+  }, [isOpen, existingMemberIds, setValue]);
+
   const handleFormSubmit = async (data: InviteMemberInput) => {
     try {
       await onSubmit(data);
       reset();
       onClose();
     } catch (err: any) {
-      alert(err.message || 'Lỗi khi mời thành viên');
+      alert(err.message || 'Lỗi khi thêm thành viên vào quỹ');
     }
   };
 
@@ -47,26 +79,42 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Mời Thành Viên Tham Gia Quỹ"
-      description="Cấp quyền truy cập cho người dùng khác vào quỹ chung này"
+      title="Thêm Thành Viên Vào Quỹ"
+      description="Chọn người dùng trong hệ thống và phân quyền truy cập vào quỹ này"
     >
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
-        {/* Email */}
+      <form onSubmit={handleSubmit(handleFormSubmit)} noValidate className="space-y-4">
+        {/* Select Member */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Email người dùng <span className="text-red-500">*</span>
+            Chọn thành viên <span className="text-red-500">*</span>
           </label>
-          <div className="relative">
-            <Mail className="w-5 h-5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="email"
-              placeholder="userb@expense.local..."
-              {...register('email')}
-              className={`w-full pl-11 pr-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
-                errors.email ? 'border-red-300 focus:border-red-500' : 'border-gray-200 focus:border-emerald-500'
-              }`}
-            />
-          </div>
+          {loadingUsers ? (
+            <div className="flex items-center gap-2 py-2.5 px-3.5 rounded-xl border border-gray-200 text-xs text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+              <span>Đang tải danh sách người dùng...</span>
+            </div>
+          ) : availableUsers.length === 0 ? (
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+              Tất cả người dùng đang hoạt động đều đã có mặt trong quỹ này.
+            </div>
+          ) : (
+            <div className="relative">
+              <Users className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select
+                {...register('email')}
+                className={`w-full pl-10 pr-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
+                  errors.email ? 'border-red-300 focus:border-red-500' : 'border-gray-200 focus:border-emerald-500'
+                }`}
+              >
+                <option value="">-- Chọn thành viên --</option>
+                {availableUsers.map((u) => (
+                  <option key={u.id} value={u.email}>
+                    {u.full_name} ({u.email})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {errors.email && (
             <p className="text-xs text-red-500 mt-1">{errors.email.message}</p>
           )}
@@ -129,28 +177,28 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Chỉ được xem danh sách giao dịch, số dư và báo cáo. Không được ghi hoặc sửa bất kỳ dữ liệu nào.
+                  Chỉ được xem số dư, danh sách giao dịch và báo cáo thống kê của quỹ.
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
           <button
             type="button"
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl transition-colors"
           >
-            Hủy
+            Hủy bỏ
           </button>
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || availableUsers.length === 0}
             className="px-5 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-colors disabled:opacity-50"
           >
-            {isSubmitting ? 'Đang gửi lời mời...' : 'Xác Nhận Mời'}
+            {isSubmitting ? 'Đang thêm...' : 'Thêm vào quỹ'}
           </button>
         </div>
       </form>

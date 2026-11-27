@@ -460,22 +460,69 @@ export const walletService = {
   },
 
   /**
-   * Mời thành viên vào quỹ chung
+   * Thêm thành viên vào quỹ chung
    */
   async inviteMember(walletId: string, email: string, role: 'EDITOR' | 'VIEWER'): Promise<WalletMember> {
-    // Tìm profile người được mời
-    const inviteeProfile = email.toLowerCase().includes('userb') 
-      ? SECONDARY_TEST_USER 
-      : {
-          id: crypto.randomUUID(),
-          email,
-          full_name: email.split('@')[0],
-          avatar_url: null,
-          is_system_admin: false,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
+    const emailNorm = email.trim().toLowerCase();
+
+    if (isSupabaseConfigured) {
+      const { data: profile, error: profErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('email', emailNorm)
+        .single();
+
+      if (profErr || !profile) {
+        throw new Error(`Không tìm thấy người dùng có email "${email}" trên hệ thống`);
+      }
+
+      const { data: inserted, error: insErr } = await supabase
+        .from('wallet_members')
+        .insert({
+          wallet_id: walletId,
+          user_id: profile.id,
+          role,
+        })
+        .select('*')
+        .single();
+
+      if (insErr) {
+        if (insErr.code === '23505') {
+          throw new Error('Thành viên này đã tham gia quỹ');
+        }
+        throw new Error(insErr.message || 'Lỗi khi thêm thành viên vào quỹ');
+      }
+
+      return {
+        ...inserted,
+        profile,
+      } as WalletMember;
+    }
+
+    // Tìm profile người được thêm từ danh sách người dùng local
+    let inviteeProfile = null;
+    try {
+      const rawUsers = localStorage.getItem('app_expense_admin_users_v1');
+      if (rawUsers) {
+        const users = JSON.parse(rawUsers);
+        inviteeProfile = users.find((u: any) => u.email.toLowerCase() === emailNorm) || null;
+      }
+    } catch {}
+
+    if (!inviteeProfile) {
+      inviteeProfile = emailNorm.includes('userb')
+        ? SECONDARY_TEST_USER
+        : {
+            id: crypto.randomUUID(),
+            email: emailNorm,
+            full_name: emailNorm.split('@')[0],
+            avatar_url: null,
+            is_system_admin: false,
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+    }
 
     const members = loadLocalMembers();
     const existing = members.find((m) => m.wallet_id === walletId && m.user_id === inviteeProfile.id);
@@ -503,6 +550,15 @@ export const walletService = {
    * Thay đổi vai trò thành viên trong quỹ (chỉ OWNER mới có quyền)
    */
   async updateMemberRole(memberId: string, newRole: WalletMemberRole): Promise<void> {
+    if (isSupabaseConfigured) {
+      const { error } = await supabase
+        .from('wallet_members')
+        .update({ role: newRole, updated_at: new Date().toISOString() })
+        .eq('id', memberId);
+      if (error) throw new Error(error.message);
+      return;
+    }
+
     const members = loadLocalMembers();
     const target = members.find((m) => m.id === memberId);
     if (!target) throw new Error('Không tìm thấy thành viên');
@@ -516,6 +572,15 @@ export const walletService = {
    * Xóa thành viên khỏi quỹ
    */
   async removeMember(memberId: string): Promise<void> {
+    if (isSupabaseConfigured) {
+      const { error } = await supabase
+        .from('wallet_members')
+        .delete()
+        .eq('id', memberId);
+      if (error) throw new Error(error.message);
+      return;
+    }
+
     const members = loadLocalMembers();
     const filtered = members.filter((m) => m.id !== memberId);
     saveLocalMembers(filtered);

@@ -43,7 +43,7 @@ export const MemberManagementModal: React.FC<MemberManagementModalProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors"
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>Mời thành viên mới</span>
+              <span>Thêm thành viên vào quỹ</span>
             </button>
           </div>
         )}

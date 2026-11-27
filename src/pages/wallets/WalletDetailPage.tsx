@@ -526,6 +526,7 @@ export const WalletDetailPage: React.FC = () => {
         isOpen={isInviteModalOpen}
         onClose={() => setIsInviteModalOpen(false)}
         onSubmit={handleInviteMember}
+        existingMemberIds={(wallet.members || []).map((m) => m.user_id)}
       />
 
       <MemberManagementModal
