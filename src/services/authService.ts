@@ -3,6 +3,8 @@ import { LoginCredentials } from '../types/auth.types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const SESSION_STORAGE_KEY = 'app_expense_auth_session';
+const REMEMBER_ME_KEY = 'app_expense_remember_me';
+const REMEMBERED_CREDS_KEY = 'app_expense_remembered_creds_v1';
 const CREDENTIALS_STORAGE_KEY = 'app_expense_auth_credentials_v1';
 const USERS_STORAGE_KEY = 'app_expense_admin_users_v1';
 
@@ -80,8 +82,23 @@ export const authService = {
   /**
    * Đăng nhập bằng Email và Mật khẩu
    */
-  async login(credentials: LoginCredentials): Promise<Profile> {
+  async login(credentials: LoginCredentials, rememberMe: boolean = true): Promise<Profile> {
     const emailNorm = credentials.email.trim().toLowerCase();
+
+    const saveSession = (profile: Profile) => {
+      localStorage.setItem(REMEMBER_ME_KEY, rememberMe ? 'true' : 'false');
+      if (rememberMe) {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(profile));
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        }
+      } else {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(profile));
+        }
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+    };
 
     if (isSupabaseConfigured) {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -108,7 +125,7 @@ export const authService = {
         throw new Error('Tài khoản này đã bị khóa bởi Quản trị viên. Vui lòng liên hệ Admin.');
       }
 
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(profile));
+      saveSession(profile as Profile);
       return profile as Profile;
     }
 
@@ -130,7 +147,7 @@ export const authService = {
       throw new Error('Tài khoản này đã bị khóa bởi Quản trị viên. Vui lòng liên hệ Admin.');
     }
 
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+    saveSession(user);
     return user;
   },
 
@@ -142,13 +159,18 @@ export const authService = {
       supabase.auth.signOut().catch((err) => console.warn('Supabase signOut error:', err));
     }
     localStorage.removeItem(SESSION_STORAGE_KEY);
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    }
   },
 
   /**
    * Lấy người dùng đang đăng nhập hiện tại
    */
   getCurrentUser(): Profile | null {
-    const data = localStorage.getItem(SESSION_STORAGE_KEY);
+    const data =
+      localStorage.getItem(SESSION_STORAGE_KEY) ||
+      (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SESSION_STORAGE_KEY) : null);
     if (!data) return null;
     try {
       const user = JSON.parse(data) as Profile;
@@ -165,6 +187,55 @@ export const authService = {
     } catch {
       return null;
     }
+  },
+
+  /**
+   * Khôi phục phiên đăng nhập từ Supabase nếu user đã chọn "Ghi nhớ đăng nhập"
+   */
+  async restoreSupabaseSession(): Promise<Profile | null> {
+    if (!isSupabaseConfigured) return null;
+    if (localStorage.getItem(REMEMBER_ME_KEY) === 'false') return null;
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const sessionUser = data?.session?.user;
+      if (!sessionUser) return null;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', sessionUser.id)
+        .single();
+
+      if (profile && profile.is_active) {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(profile));
+        return profile as Profile;
+      }
+    } catch (err) {
+      console.warn('Could not restore Supabase session:', err);
+    }
+    return null;
+  },
+
+  /**
+   * Lưu / Lấy thông tin đăng nhập đã ghi nhớ (Ghi nhớ mật khẩu)
+   */
+  getRememberedCredentials(): { email: string; password: string } | null {
+    try {
+      const raw = localStorage.getItem(REMEMBERED_CREDS_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed?.email && parsed?.password) return parsed;
+    } catch {}
+    return null;
+  },
+
+  saveRememberedCredentials(email: string, password: string): void {
+    localStorage.setItem(REMEMBERED_CREDS_KEY, JSON.stringify({ email, password }));
+  },
+
+  clearRememberedCredentials(): void {
+    localStorage.removeItem(REMEMBERED_CREDS_KEY);
   },
 
   /**

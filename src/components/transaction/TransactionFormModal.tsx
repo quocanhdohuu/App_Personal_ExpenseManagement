@@ -14,6 +14,7 @@ import { categoryService } from '../../services/categoryService';
 import { walletService } from '../../services/walletService';
 import { formatCurrency } from '../../utils/formatters';
 import { Sparkles, ArrowDownRight, ArrowUpRight, SlidersHorizontal, Wallet as WalletIcon } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 interface TransactionFormModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
   initialData,
   defaultWalletId,
 }) => {
+  const { isAdmin } = useAuth();
   const [wallets, setWallets] = useState<WalletWithDetails[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [suggestions, setSuggestions] = useState<SuggestedDescription[]>([]);
@@ -162,7 +164,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Loại giao dịch <span className="text-red-500">*</span>
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button
               type="button"
               onClick={() => {
@@ -197,22 +199,24 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
               <span>Khoản Thu</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setValue('type', 'ADJUSTMENT');
-                const matched = categories.find((c) => c.name === 'Điều chỉnh số dư' || c.type === 'BOTH');
-                if (matched) setValue('category_id', matched.id);
-              }}
-              className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs font-semibold transition-all ${
-                selectedType === 'ADJUSTMENT'
-                  ? 'bg-blue-50 border-blue-500 text-blue-700 ring-2 ring-blue-500/20'
-                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <SlidersHorizontal className="w-4 h-4 text-blue-600" />
-              <span>Điều Chỉnh</span>
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setValue('type', 'ADJUSTMENT');
+                  const matched = categories.find((c) => c.name === 'Điều chỉnh số dư' || c.type === 'BOTH');
+                  if (matched) setValue('category_id', matched.id);
+                }}
+                className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                  selectedType === 'ADJUSTMENT'
+                    ? 'bg-blue-50 border-blue-500 text-blue-700 ring-2 ring-blue-500/20'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4 text-blue-600" />
+                <span>Điều Chỉnh</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -364,19 +368,6 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
               ))}
             </div>
           )}
-        </div>
-
-        {/* Notes */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Ghi chú chi tiết (Tùy chọn)
-          </label>
-          <textarea
-            rows={2}
-            placeholder="Thông tin thêm, nơi mua sắm, hóa đơn..."
-            {...register('notes')}
-            className="w-full px-3.5 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-          />
         </div>
 
         {/* Action Buttons */}

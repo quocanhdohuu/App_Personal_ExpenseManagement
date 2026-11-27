@@ -9,9 +9,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const initAuth = () => {
+  const initAuth = async () => {
     try {
-      const activeUser = authService.getCurrentUser();
+      let activeUser = authService.getCurrentUser();
+      if (!activeUser) {
+        activeUser = await authService.restoreSupabaseSession();
+      }
       setUser(activeUser);
     } catch (e) {
       console.error('Error restoring auth session:', e);
@@ -25,8 +28,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  const login = async (credentials: LoginCredentials): Promise<Profile> => {
-    const loggedInUser = await authService.login(credentials);
+  const login = async (credentials: LoginCredentials, rememberMe: boolean = true): Promise<Profile> => {
+    const loggedInUser = await authService.login(credentials, rememberMe);
     setUser(loggedInUser);
     return loggedInUser;
   };

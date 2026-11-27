@@ -35,7 +35,7 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isLoading: boolean;
-  login: (credentials: LoginCredentials) => Promise<Profile>;
+  login: (credentials: LoginCredentials, rememberMe?: boolean) => Promise<Profile>;
   logout: () => void;
   switchAccount: (email: string) => Promise<Profile>;
   refreshUser: () => Promise<void>;

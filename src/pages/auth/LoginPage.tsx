@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Wallet, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { authService } from '../../services/authService';
 import { LoginCredentials, loginSchema } from '../../types/auth.types';
 
 export const LoginPage: React.FC = () => {
@@ -12,12 +13,15 @@ export const LoginPage: React.FC = () => {
   const location = useLocation();
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [rememberMe, setRememberMe] = useState<boolean>(true);
+  const [rememberPassword, setRememberPassword] = useState<boolean>(false);
 
   const from = (location.state as any)?.from?.pathname || '/transactions';
 
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<LoginCredentials>({
     resolver: zodResolver(loginSchema),
@@ -27,10 +31,26 @@ export const LoginPage: React.FC = () => {
     },
   });
 
+  useEffect(() => {
+    const saved = authService.getRememberedCredentials();
+    if (saved) {
+      setValue('email', saved.email);
+      setValue('password', saved.password);
+      setRememberPassword(true);
+    }
+  }, [setValue]);
+
   const onSubmit = async (data: LoginCredentials) => {
     try {
       setAuthError(null);
-      const user = await login(data);
+      const user = await login(data, rememberMe);
+
+      if (rememberPassword) {
+        authService.saveRememberedCredentials(data.email, data.password);
+      } else {
+        authService.clearRememberedCredentials();
+      }
+
       // Nếu là Admin đăng nhập trực tiếp từ trang chính thì dẫn tới /admin, người dùng thường tới /transactions
       if (user.is_system_admin && from === '/transactions') {
         navigate('/admin');
@@ -82,6 +102,7 @@ export const LoginPage: React.FC = () => {
                 </div>
                 <input
                   type="email"
+                  autoComplete="email"
                   placeholder="name@example.com"
                   {...register('email')}
                   className={`w-full pl-10 pr-3 py-2.5 rounded-xl border text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all ${
@@ -105,6 +126,7 @@ export const LoginPage: React.FC = () => {
                 </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
                   placeholder="••••••••"
                   {...register('password')}
                   className={`w-full pl-10 pr-10 py-2.5 rounded-xl border text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all ${
@@ -122,6 +144,29 @@ export const LoginPage: React.FC = () => {
               {errors.password && (
                 <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>
               )}
+            </div>
+
+            {/* Remember Me & Remember Password */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-gray-300"
+                />
+                <span className="text-xs font-medium text-gray-700">Ghi nhớ đăng nhập</span>
+              </label>
+
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberPassword}
+                  onChange={(e) => setRememberPassword(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-gray-300"
+                />
+                <span className="text-xs font-medium text-gray-700">Ghi nhớ mật khẩu</span>
+              </label>
             </div>
 
             {/* Submit Button */}
