@@ -49,9 +49,9 @@ export const TransactionListPage: React.FC = () => {
   const [isTransferModalOpen, setIsTransferModalOpen] = useState<boolean>(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  const loadData = async () => {
+  const loadData = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [wList, cList, txList] = await Promise.all([
         walletService.getWallets(),
         categoryService.getCategories(),
@@ -63,7 +63,7 @@ export const TransactionListPage: React.FC = () => {
     } catch (err) {
       console.error('Error loading transactions data:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -73,23 +73,27 @@ export const TransactionListPage: React.FC = () => {
 
   const handleCreateOrUpdate = async (input: CreateTransactionInput) => {
     if (editingTransaction) {
-      await transactionService.updateTransaction(editingTransaction.id, input);
+      const updated = await transactionService.updateTransaction(editingTransaction.id, input);
+      setTransactions((prev) => prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)));
     } else {
-      await transactionService.createTransaction(input);
+      const created = await transactionService.createTransaction(input);
+      const walletName = wallets.find((w) => w.id === created.wallet_id)?.name;
+      setTransactions((prev) => [{ ...created, wallet_name: walletName }, ...prev]);
     }
     setEditingTransaction(null);
-    await loadData();
+    await loadData(true);
   };
 
   const handleTransfer = async (input: TransferFundsInput) => {
     await transactionService.transferFunds(input);
-    await loadData();
+    await loadData(true);
   };
 
   const handleSoftDelete = async (tx: Transaction) => {
     if (confirm(`Bạn có chắc chắn muốn xóa giao dịch "${tx.description}"? (Hệ thống sẽ xóa mềm để lưu vết kiểm toán và tự động tính lại số dư quỹ)`)) {
+      setTransactions((prev) => prev.filter((t) => t.id !== tx.id));
       await transactionService.softDeleteTransaction(tx.id);
-      await loadData();
+      await loadData(true);
     }
   };
 

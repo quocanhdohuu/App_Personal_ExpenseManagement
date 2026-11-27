@@ -113,10 +113,15 @@ export const transactionService = {
         if (options.endDate) query = query.lte('transaction_date', options.endDate);
         if (options.searchQuery) query = query.ilike('description', `%${options.searchQuery}%`);
 
-        if (options.sortBy === 'date_asc') query = query.order('transaction_date', { ascending: true });
-        else if (options.sortBy === 'amount_desc') query = query.order('amount', { ascending: false });
-        else if (options.sortBy === 'amount_asc') query = query.order('amount', { ascending: true });
-        else query = query.order('transaction_date', { ascending: false });
+        if (options.sortBy === 'date_asc') {
+          query = query.order('transaction_date', { ascending: true }).order('created_at', { ascending: true });
+        } else if (options.sortBy === 'amount_desc') {
+          query = query.order('amount', { ascending: false }).order('created_at', { ascending: false });
+        } else if (options.sortBy === 'amount_asc') {
+          query = query.order('amount', { ascending: true }).order('created_at', { ascending: false });
+        } else {
+          query = query.order('transaction_date', { ascending: false }).order('created_at', { ascending: false });
+        }
 
         const { data, error } = await query;
         if (!error && data) {
@@ -167,16 +172,20 @@ export const transactionService = {
     // Sorting
     list.sort((a, b) => {
       if (options.sortBy === 'date_asc') {
-        return new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime();
+        const diff = new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime();
+        return diff !== 0 ? diff : new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       }
       if (options.sortBy === 'amount_desc') {
-        return b.amount - a.amount;
+        const diff = b.amount - a.amount;
+        return diff !== 0 ? diff : new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }
       if (options.sortBy === 'amount_asc') {
-        return a.amount - b.amount;
+        const diff = a.amount - b.amount;
+        return diff !== 0 ? diff : new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }
-      // Default date_desc
-      return new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime();
+      // Default date_desc: Mới nhất theo ngày giao dịch, cùng ngày thì giao dịch vừa tạo lên trên cùng
+      const diff = new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime();
+      return diff !== 0 ? diff : new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
 
     return list;
