@@ -42,7 +42,7 @@ export const Modal: React.FC<ModalProps> = ({
   }[maxWidth];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 touch-pan-y">
       <div 
         className="fixed inset-0" 
         onClick={onClose}
@@ -66,7 +66,7 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-6 max-h-[80vh] overflow-y-auto">
+        <div className="p-6 max-h-[80vh] overflow-y-auto touch-pan-y">
           {children}
         </div>
       </div>
