@@ -200,13 +200,22 @@ export const transactionService = {
     const categories = await categoryService.getCategories(input.wallet_id);
     const category = categories.find((c) => c.id === input.category_id);
 
+    const now = new Date();
+    const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const resolvedTxDate =
+      input.transaction_date === todayLocal
+        ? now.toISOString()
+        : input.transaction_date.length === 10
+          ? `${input.transaction_date}T12:00:00.000Z`
+          : input.transaction_date;
+
     const newTx: Transaction = {
       id: crypto.randomUUID(),
       wallet_id: input.wallet_id,
       category_id: input.category_id,
       type: input.type,
       amount: input.amount,
-      transaction_date: input.transaction_date,
+      transaction_date: resolvedTxDate,
       description: input.description,
       notes: input.notes || null,
       created_by: currentUserId,
