@@ -13,17 +13,19 @@ import {
   AlertCircle, 
   Calendar,
   Smartphone,
-  HardDrive
+  HardDrive,
+  Fingerprint
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/authService';
+import { biometricService } from '../../services/biometricService';
 import { db } from '../../database/dexieDb';
 import { syncEngine } from '../../services/syncEngine';
 import { formatDate } from '../../utils/formatters';
 import { Badge } from '../../components/common/Badge';
 
 export const ProfilePage: React.FC = () => {
-  const { user, isAdmin, refreshUser } = useAuth();
+  const { user, isAdmin, refreshUser, unlockBiometric } = useAuth();
   const [activeTab, setActiveTab] = useState<'INFO' | 'PASSWORD' | 'OFFLINE'>('INFO');
 
   // Form states for profile info
@@ -49,10 +51,18 @@ export const ProfilePage: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
+  // Biometric states
+  const [biometricSupported, setBiometricSupported] = useState<boolean>(false);
+  const [biometricEnabled, setBiometricEnabled] = useState<boolean>(false);
+  const [biometricBusy, setBiometricBusy] = useState<boolean>(false);
+  const [biometricMessage, setBiometricMessage] = useState<string | null>(null);
+
   useEffect(() => {
     if (user) {
       setFullName(user.full_name);
+      setBiometricEnabled(biometricService.isEnabled(user.id));
     }
+    biometricService.isSupported().then(setBiometricSupported);
   }, [user]);
 
   const loadOfflineStats = async () => {
@@ -163,6 +173,29 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
+  const handleToggleBiometric = async () => {
+    if (!user) return;
+    setBiometricMessage(null);
+    if (biometricEnabled) {
+      biometricService.disable(user.id);
+      setBiometricEnabled(false);
+      setBiometricMessage('Đã tắt khóa Vân tay / Khuôn mặt trên thiết bị này.');
+      return;
+    }
+
+    try {
+      setBiometricBusy(true);
+      await biometricService.register(user);
+      unlockBiometric();
+      setBiometricEnabled(true);
+      setBiometricMessage('Đã bật khóa Vân tay / Khuôn mặt thành công! Lần sau mở app hệ thống sẽ yêu cầu xác thực.');
+    } catch (err: any) {
+      setBiometricMessage(err?.message || 'Không thể đăng ký sinh trắc học trên thiết bị này.');
+    } finally {
+      setBiometricBusy(false);
+    }
+  };
+
   if (!user) return null;
 
   const initialLetter = user.full_name ? user.full_name[0].toUpperCase() : 'U';
@@ -239,7 +272,7 @@ export const ProfilePage: React.FC = () => {
           }`}
         >
           <Lock className="w-4 h-4" />
-          <span>Đổi Mật Khẩu</span>
+          <span>Bảo Mật & Mật Khẩu</span>
         </button>
 
         <button
@@ -413,6 +446,62 @@ export const ProfilePage: React.FC = () => {
               </button>
             </div>
           </form>
+
+          {/* Biometric Lock Card */}
+          <div className="mt-8 pt-6 border-t border-gray-100 max-w-lg space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200">
+                  <Fingerprint className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-gray-900">Khóa Vân tay / Khuôn mặt</h3>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      biometricEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {biometricEnabled ? 'Đang bật' : 'Đang tắt'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                    Yêu cầu xác thực Vân tay hoặc Face ID mỗi lần mở ứng dụng trên điện thoại (WebAuthn).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {biometricMessage && (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700">
+                {biometricMessage}
+              </div>
+            )}
+
+            {!biometricSupported && !biometricEnabled && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+                Thiết bị hoặc trình duyệt hiện tại chưa phát hiện cảm biến Vân tay / Face ID. Hãy mở trên điện thoại qua HTTPS để bật tính năng này.
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleToggleBiometric}
+              disabled={biometricBusy || (!biometricSupported && !biometricEnabled)}
+              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all disabled:opacity-50 ${
+                biometricEnabled
+                  ? 'border border-red-200 text-red-600 bg-red-50 hover:bg-red-100'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20'
+              }`}
+            >
+              <Fingerprint className="w-4 h-4" />
+              <span>
+                {biometricBusy
+                  ? 'Đang xác thực thiết bị...'
+                  : biometricEnabled
+                  ? 'Tắt khóa Vân tay / Khuôn mặt'
+                  : 'Bật khóa Vân tay / Khuôn mặt'}
+              </span>
+            </button>
+          </div>
         </div>
       )}
 

@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Profile } from '../types/database.types';
 import { AuthContextType, LoginCredentials } from '../types/auth.types';
 import { authService } from '../services/authService';
+import { biometricService } from '../services/biometricService';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isBiometricUnlockedInSession, setIsBiometricUnlockedInSession] = useState<boolean>(false);
 
   const initAuth = async () => {
     try {
@@ -31,12 +33,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (credentials: LoginCredentials, rememberMe: boolean = true): Promise<Profile> => {
     const loggedInUser = await authService.login(credentials, rememberMe);
     setUser(loggedInUser);
+    setIsBiometricUnlockedInSession(true);
     return loggedInUser;
   };
 
   const logout = () => {
     authService.logout();
     setUser(null);
+    setIsBiometricUnlockedInSession(false);
+  };
+
+  const unlockBiometric = () => {
+    setIsBiometricUnlockedInSession(true);
   };
 
   const switchAccount = async (email: string): Promise<Profile> => {
@@ -50,11 +58,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(active ? { ...active } : null);
   };
 
+  const isBiometricLocked = Boolean(
+    user && biometricService.isEnabled(user.id) && !isBiometricUnlockedInSession
+  );
+
   const value: AuthContextType = {
     user,
     isAuthenticated: Boolean(user),
     isAdmin: Boolean(user?.is_system_admin),
     isLoading,
+    isBiometricLocked,
+    unlockBiometric,
     login,
     logout,
     switchAccount,

@@ -2,9 +2,10 @@ import React from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Loader2 } from 'lucide-react';
+import { BiometricLockScreen } from '../components/auth/BiometricLockScreen';
 
 export const ProtectedRoute: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isBiometricLocked, unlockBiometric } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -20,6 +21,10 @@ export const ProtectedRoute: React.FC = () => {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (isBiometricLocked) {
+    return <BiometricLockScreen onUnlocked={unlockBiometric} />;
   }
 
   return <Outlet />;

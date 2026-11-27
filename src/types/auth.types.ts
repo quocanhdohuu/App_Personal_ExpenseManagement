@@ -35,6 +35,8 @@ export interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isLoading: boolean;
+  isBiometricLocked: boolean;
+  unlockBiometric: () => void;
   login: (credentials: LoginCredentials, rememberMe?: boolean) => Promise<Profile>;
   logout: () => void;
   switchAccount: (email: string) => Promise<Profile>;
